@@ -16,6 +16,7 @@ package ambient
 
 import (
 	"net/netip"
+	"sync/atomic"
 	"testing"
 
 	v1 "k8s.io/api/core/v1"
@@ -27,6 +28,7 @@ import (
 	networking "istio.io/api/networking/v1alpha3"
 	networkingclient "istio.io/client-go/pkg/apis/networking/v1"
 	securityclient "istio.io/client-go/pkg/apis/security/v1"
+	"istio.io/istio/pilot/pkg/features"
 	"istio.io/istio/pilot/pkg/model"
 	"istio.io/istio/pkg/config/constants"
 	"istio.io/istio/pkg/config/labels"
@@ -1579,14 +1581,19 @@ func kubernetesAPIServerEndpoint(ip string) *discovery.EndpointSlice {
 }
 
 func newAmbientUnitTest() *index {
-	return &index{
+	idx := &index{
 		networkUpdateTrigger: krt.NewRecomputeTrigger(true),
+		networkGateways:      new(atomic.Pointer[map[network.ID][]model.NetworkGateway]),
 		ClusterID:            testC,
 		DomainSuffix:         "domain.suffix",
 		Network: func(endpointIP string, labels labels.Instance) network.ID {
 			return testNW
 		},
-		LookupNetworkGateways: func() []model.NetworkGateway {
+		Flags: FeatureFlags{
+			DefaultAllowFromWaypoint:              features.DefaultAllowFromWaypoint,
+			EnableK8SServiceSelectWorkloadEntries: features.EnableK8SServiceSelectWorkloadEntries,
+		},
+		LookupNetworkGatewaysExpensive: func() []model.NetworkGateway {
 			return []model.NetworkGateway{
 				{
 					Network:   "remote-network",
@@ -1613,6 +1620,8 @@ func newAmbientUnitTest() *index {
 			}
 		},
 	}
+	idx.SyncAll()
+	return idx
 }
 
 var podReady = []v1.PodCondition{

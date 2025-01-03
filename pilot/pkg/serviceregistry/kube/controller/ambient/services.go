@@ -43,13 +43,13 @@ func (a *index) ServicesCollection(
 	serviceEntries krt.Collection[*networkingclient.ServiceEntry],
 	waypoints krt.Collection[Waypoint],
 	namespaces krt.Collection[*v1.Namespace],
-	withDebug krt.CollectionOption,
+	opts KrtOptions,
 ) krt.Collection[model.ServiceInfo] {
 	ServicesInfo := krt.NewCollection(services, a.serviceServiceBuilder(waypoints, namespaces),
-		krt.WithName("ServicesInfo"), withDebug)
+		opts.WithName("ServicesInfo")...)
 	ServiceEntriesInfo := krt.NewManyCollection(serviceEntries, a.serviceEntryServiceBuilder(waypoints, namespaces),
-		krt.WithName("ServiceEntriesInfo"), withDebug)
-	WorkloadServices := krt.JoinCollection([]krt.Collection[model.ServiceInfo]{ServicesInfo, ServiceEntriesInfo}, krt.WithName("WorkloadServices"))
+		opts.WithName("ServiceEntriesInfo")...)
+	WorkloadServices := krt.JoinCollection([]krt.Collection[model.ServiceInfo]{ServicesInfo, ServiceEntriesInfo}, opts.WithName("WorkloadService")...)
 	return WorkloadServices
 }
 
@@ -58,6 +58,14 @@ func (a *index) serviceServiceBuilder(
 	namespaces krt.Collection[*v1.Namespace],
 ) krt.TransformationSingle[*v1.Service, model.ServiceInfo] {
 	return func(ctx krt.HandlerContext, s *v1.Service) *model.ServiceInfo {
+		if s.Spec.Type == v1.ServiceTypeExternalName {
+			// ExternalName services are not implemented by ambient (but will still work).
+			// The DNS requests will forward to the upstream DNS server, then Ztunnel can handle the request based on the target
+			// hostname.
+			// In theory we could add support for native 'DNS alias' into Ztunnel's DNS proxy. This would give the same behavior
+			// but let the DNS proxy handle it instead of forwarding upstream. However, at this time we do not do so.
+			return nil
+		}
 		portNames := map[int32]model.ServicePortName{}
 		for _, p := range s.Spec.Ports {
 			portNames[p.Port] = model.ServicePortName{
@@ -69,7 +77,12 @@ func (a *index) serviceServiceBuilder(
 		waypoint, wperr := fetchWaypointForService(ctx, waypoints, namespaces, s.ObjectMeta)
 		if waypoint != nil {
 			waypointStatus.ResourceName = waypoint.ResourceName()
-			waypointStatus.IngressUseWaypoint = s.Labels["istio.io/ingress-use-waypoint"] == "true"
+
+			// TODO: add this label to the istio api labels so we have constants to use
+			if val, ok := s.Labels["istio.io/ingress-use-waypoint"]; ok {
+				waypointStatus.IngressLabelPresent = true
+				waypointStatus.IngressUseWaypoint = strings.EqualFold(val, "true")
+			}
 		}
 		waypointStatus.Error = wperr
 

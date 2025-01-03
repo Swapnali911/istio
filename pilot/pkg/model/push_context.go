@@ -2109,8 +2109,24 @@ func (ps *PushContext) initWasmPlugins(env *Environment) {
 }
 
 // WasmPlugins return the WasmPluginWrappers of a proxy.
+// For most proxy types, we include only the root namespace and same-namespace objects.
+// However, waypoints allow cross-namespace access based on attached Service objects.
+// In this case, include all referenced services in the selection criteria
 func (ps *PushContext) WasmPlugins(proxy *Proxy) map[extensions.PluginPhase][]*WasmPluginWrapper {
-	return ps.WasmPluginsByListenerInfo(proxy, anyListener, WasmPluginTypeAny)
+	listenerInfo := WasmPluginListenerInfo{}
+	if proxy.IsWaypointProxy() {
+		servicesInfo := ps.ServicesForWaypoint(WaypointKeyForProxy(proxy))
+		for _, si := range servicesInfo {
+			s := si.Service
+			svc, exist := ps.ServiceIndex.HostnameAndNamespace[host.Name(s.Hostname)][s.Namespace]
+			if !exist {
+				log.Warnf("cannot find waypoint service in serviceindex, namespace/hostname: %s/%s", s.Namespace, s.Hostname)
+				continue
+			}
+			listenerInfo = listenerInfo.WithService(svc)
+		}
+	}
+	return ps.WasmPluginsByListenerInfo(proxy, listenerInfo, WasmPluginTypeAny)
 }
 
 func (ps *PushContext) WasmPluginsByName(proxy *Proxy, names []types.NamespacedName) []*WasmPluginWrapper {
@@ -2138,19 +2154,13 @@ func (ps *PushContext) WasmPluginsByListenerInfo(proxy *Proxy, info WasmPluginLi
 		return nil
 	}
 
-	var lookupInNamespaces []string
 	matchedPlugins := make(map[extensions.PluginPhase][]*WasmPluginWrapper)
-
-	if proxy.ConfigNamespace != ps.Mesh.RootNamespace {
-		// Only check the root namespace if the (workload) namespace is not already the root namespace
-		// to avoid double inclusion.
-		lookupInNamespaces = []string{proxy.ConfigNamespace, ps.Mesh.RootNamespace}
-	} else {
-		lookupInNamespaces = []string{proxy.ConfigNamespace}
+	lookupInNamespaces := []string{proxy.ConfigNamespace, ps.Mesh.RootNamespace}
+	for i := range info.Services {
+		lookupInNamespaces = append(lookupInNamespaces, info.Services[i].NamespacedName().Namespace)
 	}
-
-	selectionOpts := PolicyMatcherForProxy(proxy).WithService(info.Service)
-	for _, ns := range lookupInNamespaces {
+	selectionOpts := PolicyMatcherForProxy(proxy).WithServices(info.Services)
+	for _, ns := range slices.FilterDuplicates(lookupInNamespaces) {
 		if wasmPlugins, ok := ps.wasmPluginsByNamespace[ns]; ok {
 			for _, plugin := range wasmPlugins {
 				if plugin.MatchListener(selectionOpts, info) && plugin.MatchType(pluginType) {
@@ -2500,7 +2510,7 @@ func (ps *PushContext) SupportsTunnel(n network.ID, ip string) bool {
 	// We should get 0 or 1 workloads, so just return the first.
 	infos, _ := ps.ambientIndex.AddressInformation(sets.New(n.String() + "/" + ip))
 	for _, wl := range ExtractWorkloadsFromAddresses(infos) {
-		if wl.TunnelProtocol == workloadapi.TunnelProtocol_HBONE {
+		if wl.Workload.TunnelProtocol == workloadapi.TunnelProtocol_HBONE {
 			return true
 		}
 	}

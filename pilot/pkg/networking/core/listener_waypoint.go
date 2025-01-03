@@ -321,7 +321,7 @@ func (lb *ListenerBuilder) buildWaypointInternal(wls []model.WorkloadInfo, svcs 
 			// Workload IP filtering happens here.
 			ipRange := []*xds.CidrRange{}
 			for _, wl := range wls {
-				for _, ip := range wl.Addresses {
+				for _, ip := range wl.Workload.Addresses {
 					addr, _ := netip.AddrFromSlice(ip)
 					cidr := util.ConvertAddressToCidr(addr.String())
 					ipRange = append(ipRange, &xds.CidrRange{
@@ -467,10 +467,10 @@ func (lb *ListenerBuilder) buildWaypointHTTPFilters(svc *model.Service) (pre []*
 
 	// TODO: consider dedicated listener class for waypoint filters
 	cls := istionetworking.ListenerClassSidecarInbound
-	wasm := lb.push.WasmPluginsByListenerInfo(lb.node, model.WasmPluginListenerInfo{
-		Class:   cls,
-		Service: svc,
-	}, model.WasmPluginTypeHTTP)
+	wasm := lb.push.WasmPluginsByListenerInfo(lb.node,
+		model.WasmPluginListenerInfo{Class: cls}.WithService(svc),
+		model.WasmPluginTypeHTTP,
+	)
 	// TODO: how to deal with ext-authz? It will be in the ordering twice
 	// TODO policies here will need to be different per-chain (service attached)
 	pre = append(pre, authzCustomBuilder.BuildHTTP(cls)...)

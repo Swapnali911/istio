@@ -97,7 +97,7 @@ var (
 			"request_id":                        {Kind: &structpb.Value_StringValue{StringValue: "%REQ(X-REQUEST-ID)%"}},
 			"authority":                         {Kind: &structpb.Value_StringValue{StringValue: "%REQ(:AUTHORITY)%"}},
 			"upstream_host":                     {Kind: &structpb.Value_StringValue{StringValue: "%UPSTREAM_HOST%"}},
-			"upstream_cluster":                  {Kind: &structpb.Value_StringValue{StringValue: "%UPSTREAM_CLUSTER%"}},
+			"upstream_cluster":                  {Kind: &structpb.Value_StringValue{StringValue: "%UPSTREAM_CLUSTER_RAW%"}},
 			"upstream_local_address":            {Kind: &structpb.Value_StringValue{StringValue: "%UPSTREAM_LOCAL_ADDRESS%"}},
 			"downstream_local_address":          {Kind: &structpb.Value_StringValue{StringValue: "%DOWNSTREAM_LOCAL_ADDRESS%"}},
 			"downstream_remote_address":         {Kind: &structpb.Value_StringValue{StringValue: "%DOWNSTREAM_REMOTE_ADDRESS%"}},
@@ -175,7 +175,7 @@ func telemetryAccessLog(push *PushContext, proxy *Proxy, fp *meshconfig.MeshConf
 }
 
 func filterStateObjectsToLog(proxy *Proxy) []string {
-	if proxy.VersionGreaterAndEqual(&IstioVersion{Major: 1, Minor: 24, Patch: 0}) {
+	if proxy.VersionGreaterOrEqual(&IstioVersion{Major: 1, Minor: 24, Patch: 0}) {
 		return envoyStateToLog
 	}
 
